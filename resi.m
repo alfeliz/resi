@@ -96,7 +96,7 @@ while ( i<= prod(size(data{1})) )
 		 case "dew" %Wire diameter to transform in radius
 			radius = str2num(cell2mat(data{1}(i+1)));
 			scale_rad = trans(cell2mat(data{1}(i+2)));
-			radius = radius * scale_rad* 0.5; %To transform in radius teh diameter
+			radius = radius * scale_rad* 0.5; %To transform in radius the diameter
 			i = i + 2;
 		 case "lew" %Wire length
 			lwire = str2num(cell2mat(data{1}(i+1)));
@@ -184,16 +184,18 @@ vmeas = res2 - res3 ;
 #Finding L2 and R2, the lumped parameters for the anode:
 [min_vol, pos] = min(vmeas); %Position of the first minimum peak. To perform the approximation to find L2 and R2
 
-X(:,1) = rog(pos:end);
-X(:,2) = curr(pos:end);
 
-[anode,anode_error] = regress(vmeas(pos:end),X); %Multpile linear regreession.NO DEBE FORZAR EL PASO EL PASO POR ZERO
+X(:,1) = zeros(length(rog(pos:end)),1); %Theoretically, it does forces the pass fro zero, but it works better...
+X(:,2) = rog(pos:end);
+X(:,3) = curr(pos:end);
+
+[anode,anode_error] = regress(vmeas(pos:end),X); %Multiple linear regreession.
 
 anode_error = anode_error(:,2)-anode_error(:,1); %L2 and R2 errors for the confidence intervals.
 
-L2 = anode(1); %Henrios
+L2 = anode(2); %Henrios
 
-R2 = anode(2); %Ohms
+R2 = anode(3); %Ohms
 
 vlast = L2*rog + R2*curr; %Voltage across the last part of the circuit
 
