@@ -63,8 +63,8 @@ datafile = arg_list{1};
 radfile = arg_list{2};
 
 #Number of channels recorded with electrical signals:
-%num_chan = 3; #Testing purposes
-num_chan = str2num(arg_list{3}); %It records the arguments as strings/characters.
+num_chan = 3; #Testing purposes
+%num_chan = str2num(arg_list{3}); %It records the arguments as strings/ch
 
 
 ###########################################################################################
@@ -93,10 +93,10 @@ while ( i<= prod(size(data{1})) )
 	 if cool==0 %We are with a data label and convert data in the next line.
 		str = cell2mat(data{1}(i));
 		switch (str) %"If" sentence cannot handle strings well.
-		 case "rew" %Wire radius
+		 case "dew" %Wire diameter to transform in radius
 			radius = str2num(cell2mat(data{1}(i+1)));
 			scale_rad = trans(cell2mat(data{1}(i+2)));
-			radius = radius * scale_rad;
+			radius = radius * scale_rad* 0.5; %To transform in radius teh diameter
 			i = i + 2;
 		 case "lew" %Wire length
 			lwire = str2num(cell2mat(data{1}(i+1)));
@@ -108,7 +108,7 @@ while ( i<= prod(size(data{1})) )
 			scale_len = trans(cell2mat(data{1}(i+2)));
 			dwire = dwire * scale_len;
 			i = i + 2;
-		 case "Cv" %Specific heat in Kj * mol / K
+		 case "Cv" %Specific heat in J * mol / K
 			Cv = str2num(cell2mat(data{1}(i+1)));
 			scale_len = trans(cell2mat(data{1}(i+2)));
 			Cv = Cv * scale_len;
@@ -187,7 +187,7 @@ vmeas = res2 - res3 ;
 X(:,1) = rog(pos:end);
 X(:,2) = curr(pos:end);
 
-[anode,anode_error] = regress(vmeas(pos:end),X); %Multpile linear regreession.
+[anode,anode_error] = regress(vmeas(pos:end),X); %Multpile linear regreession.NO DEBE FORZAR EL PASO EL PASO POR ZERO
 
 anode_error = anode_error(:,2)-anode_error(:,1); %L2 and R2 errors for the confidence intervals.
 
@@ -201,15 +201,29 @@ vew = vmeas - vlast; %Voltage on the wire
 
 #Calculating border inductance:
 lbor = ((mu*lwire)/(2*pi)) * (1./(cosh(dwire/rad_data)));
+lbor = lbor';
 #Derivative of the inductanece:
-derlbor = deri(lbor',abs(t_rad(1)-t_rad(2)));
+derlbor = deri(lbor, abs(t_rad(1)-t_rad(2)))';
 
-derlbor =  [0 0 derlbor]; %Adding extra terms to account for the ones that we lose on the derivative
+
+%~ derlbor =  [0'; %Adding extra terms to account for the ones that we lose on the derivative
 
 idx = ( tvec >= t_rad(1) ) & ( tvec <= t_rad(end) ); %Index with the time of the appearance of the radial data.
 
-#Calculating inductive voltage:
-van = lbor(2:end-1)'.*rog( idx ) + derlbor(2:end-1)'.*curr( idx );
+#Calculating inductive voltage, adjusting by length of rog(idx):
+if length(rog(idx)) > length(lbor)
+ lbor = [ lbor; zeros(length(rog(idx))-length(lbor),1)];
+elseif length(rog(idx)) < length(lbor)
+ lbor = lbor(1:length(rog(idx)));
+endif;
+
+if length(rog(idx)) > length(derlbor)
+ derlbor = [ derlbor; zeros(length(rog(idx))-length(derlbor),1)];
+elseif length(rog(idx)) < length(derlbor)
+ derlbor = derlbor(1:length(rog(idx)));
+endif;
+
+van = lbor.*rog(idx) + derlbor.*curr(idx);
 
 vanode = zeros(length(vmeas),1); %Vector of same length that other voltage measurements
 
@@ -222,12 +236,21 @@ Rres = vres./curr; %Ohms and cool!!!!
 
 #Putting the radial expansion in an adequate size and synchronization vector:
 rad = zeros(length(vmeas),1);
-rad(idx) = rad_data(2:end-1);
+
+if length(rad(idx)) > length(rad_data)
+ rad(idx) = [ rad_data ; zeros( length(rad(idx)) - length(rad_data) , 1) ];
+elseif length(rad(idx)) < length(rad_data)
+ rad(idx) = rad_data(1:length(rad(idx)));
+elseif length(rad(idx)) == length(rad_data)
+ rad(idx) = rad_data;
+endif;
+
 
 ##
-#Gas resistivity upper limit:
+#Gas resistivity lower limit:
 ##
-resgasup =  (Rres .* pi .* rad.^2)./lwire; %Ohm/m
+resgasdown =  (Rres .* pi .* rad.^2)./lwire; %Ohm*m
+
 
 #Gas resistivity lower limit initial parameters calculations:
 moles = (den * lwire * pi * radius^2) / weight; %Mass in moles
@@ -262,10 +285,15 @@ temp(idx2) = T;
 delta_T = Tion-Tboil;
 
 ##
-#Gas resistivity lower limit:
+#Gas resistivity upper limit:
 ##
-resgasdown = (vres.^2 ./ (moles * Cv) ) .*( (pi .* rad.^2)./lwire).^2 .* (delta_t/delta_T); %Ohms/m
+resgasup = (vres.^2 ./ (moles * Cv) ) .* ( (pi .* rad.^2)./lwire ) .* (delta_t/delta_T); %Ohms*m
 
+###########################################################################################
+# Removing data garbage from data files:
+###########################################################################################
+resgasup(temp==0) = 0;
+resgasdown(temp==0) = 0;
 
 ###########################################################################################
 # Saving data files:
@@ -273,11 +301,19 @@ resgasdown = (vres.^2 ./ (moles * Cv) ) .*( (pi .* rad.^2)./lwire).^2 .* (delta_
 shotname = strtok(datafile,"-"); #Taking tha name from datafile.
 
 #Saving resistivities:
-res = [tvec./us temp resgasup resgasdown Rres];
+#Making the time from 0 to 1 vector:
+
+t_un = linspace(0,1,length(resgasup(resgasup!=0)))'; %Linear values between initial melting and final ionization times
+
+t_uniform = zeros(length(vmeas),1); %Vector of same length that other voltage measurements
+
+t_uniform(resgasup!=0) = t_un; %Creating a time vector of the adequate length.
+
+res = [tvec./us t_uniform resgasup resgasdown Rres];
 redond = [4 3 4 4 4];
 name = horzcat(shotname,"_res.dat"); #Adding the right sufix.
 output = fopen(name,"w"); #Opening the file.
-fdisp(output,"time(µs)	Temper.(K)	res.up(Ohm/m)	res.down(Ohm/m)"); #First line.
+fdisp(output,"time(µs)	time_uniform	res.up(Ohm/m)	res.down(Ohm/m)	resistance(Ohms)"); #First line.
 display_rounded_matrix(res, redond, output); 
 fclose(output);
 
