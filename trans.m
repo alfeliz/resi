@@ -41,12 +41,14 @@ switch (multiplier)
     output = 1e-6;
  case "k"
     output = 1e3;
- case "g/cm"
+ case "g/cm3"
     output = 1e3;
  case "g/mol"
-    output = 1e3;
+    output = 1e-3;
  case "K"
-    output = 1;      
+    output = 1;
+ case "J"
+    output = 1;           
  otherwise
    output = 1;
 endswitch;
