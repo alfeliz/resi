@@ -34,8 +34,11 @@ tic; #Control total computing time.
 #Empty memory from user created variables:
 clear;
 
+pkg load data-smoothing; #Load all the packages. 
+pkg load statistics; #Load all the packages.
+
 ###########################################################################################
-# General script parameters nad unit conversions:
+# General script parameters and unit conversions:
 ###########################################################################################
 pi = 3.141592; %Pi value
 mu = 4*pi*1e-7; %Vacuum permeability in S.I. units
@@ -55,12 +58,12 @@ endfor
 printf ("\n");
 
 #String with the parameters file name:
-%datafile = "ALEX345-data.txt"; %Testing purposes.
-datafile = arg_list{1};
+datafile = "ALEX626wire.txt"; %Testing purposes.
+%datafile = arg_list{1};
 
 #file with radial data:
-%radfile = "example-radial.dat"; %Testing purposes
-radfile = arg_list{2};
+radfile = "753rad.csv"; %Testing purposes
+%radfile = arg_list{2};
 
 #Number of channels recorded with electrical signals:
 num_chan = 3; #Testing purposes
@@ -68,7 +71,7 @@ num_chan = 3; #Testing purposes
 
 
 ###########################################################################################
-# Reading the parameters file with wire paramters and magnitudes:
+# Reading the parameters file with wire parameters and magnitudes:
 # It must be written with parametr name up, and the next line the value and a blank line after.
 ###########################################################################################
 [dfile, msg] = fopen(datafile, "r");
@@ -146,10 +149,11 @@ endwhile;
 for i=1:num_chan
  cha_name = ["ALL_CH" num2str(i) ".csv"]; %Making the name of each channel present
  cha_file = fopen(cha_name, "r"); %Opening
- data = textscan(cha_file, chan_rows, "endofline", "\n"); %Arra. 1, time in seconds, 2, signal in volts
+  data = textscan(cha_file, chan_rows); %Arra. 1, time in seconds, 2, signal in volts
+ %data = textscan(cha_file, chan_rows, "endofline", "\n") %Arra. 1, time in seconds, 2, signal in volts
  fclose(cha_file);	 
 	 if i==1 %Ch1 Rogowsky (ALTER THIS IF SEQUENCE WHEN THE CHANNEL CONFIGURATION CHANGES!!!!!)
-	  rog = 9.12*1e9*data{2}; %I-dot values (A/s)
+	  rog = 9.36*1e9*data{2}; %I-dot values (A/s)
 	 elseif i==2 %Ch2 2-Resistive divider 
 	  res2 = data{2}*1358.91; %Volts
 	 elseif i==3 %Ch3 3-resisitive divider
@@ -165,8 +169,11 @@ tvec = data{1}; %Time vector. All signals synchronized.
 ###########################################################################################
 chan_rows =  "%f %f"; %Rows definition on the CSV channel datafiles
 [t_rad, rad_data] = textread(radfile, chan_rows, "endofline", "\n", "headerlines",1); %
-t_rad = t_rad * us; %In seconds now.
-rad_data = rad_data * mm; %In meters now.
+t_rad1 = t_rad * us; %In seconds now.
+rad_data1 = rad_data * mm; %In meters now.
+
+t_rad = linspace(1.21*us,6.68*us,547)'; #200 points in the smoothed radius
+rad_data= regdatasmooth(t_rad1, rad_data1, "xhat", t_rad, "lambda", 0.007 ); #Smoothed radius
 
 
 
@@ -176,7 +183,12 @@ rad_data = rad_data * mm; %In meters now.
 ###########################################################################################
 
 #Current:
-curr = cumtrapz(tvec,rog);
+%curr = cumtrapz(tvec,rog);
+chan_rows2 =  "%f %f %f"; %Rows definition on the CSV channel datafiles
+ cha_file = fopen('ALEX753-elec.csv', "r"); %Opening
+dumi = textscan(cha_file, chan_rows2);
+ fclose(cha_file);
+curr = dumi{3} * 1e3 %Amperes
 
 #Measured voltage:
 vmeas = res2 - res3 ;
@@ -185,17 +197,17 @@ vmeas = res2 - res3 ;
 [min_vol, pos] = min(vmeas); %Position of the first minimum peak. To perform the approximation to find L2 and R2
 
 
-X(:,1) = zeros(length(rog(pos:end)),1); %Theoretically, it does forces the pass fro zero, but it works better...
-X(:,2) = rog(pos:end);
-X(:,3) = curr(pos:end);
+X(:,1) = rog(pos:end);
+X(:,2) = curr(pos:end);
 
 [anode,anode_error] = regress(vmeas(pos:end),X); %Multiple linear regreession.
 
+
 anode_error = anode_error(:,2)-anode_error(:,1); %L2 and R2 errors for the confidence intervals.
 
-L2 = anode(2); %Henrios
+L2 = anode(1) %Henrios
 
-R2 = anode(3); %Ohms
+R2 = anode(2) %Ohms
 
 vlast = L2*rog + R2*curr; %Voltage across the last part of the circuit
 
@@ -267,7 +279,8 @@ t1 = peaks(pos,1); %time of first position in seconds. (boiling moment)
 
 t2 = peaks(end,1); %Last peak is the most away and signals the end of voltage...(ionization moment)
 
-delta_t = t2-t1; 
+%delta_t = t2-t1
+delta_t = 4.21e-6
 
 if delta_t < 0
  error("script resi: time interval for dark pause negative, something wrong.");
@@ -294,8 +307,8 @@ resgasup = (vres.^2 ./ (moles * Cv) ) .* ( (pi .* rad.^2)./lwire ) .* (delta_t/d
 ###########################################################################################
 # Removing data garbage from data files:
 ###########################################################################################
-resgasup(temp==0) = 0;
-resgasdown(temp==0) = 0;
+%resgasup(temp==0) = 0;
+%resgasdown(temp==0) = 0;
 
 ###########################################################################################
 # Saving data files:
@@ -312,19 +325,19 @@ t_uniform = zeros(length(vmeas),1); %Vector of same length that other voltage me
 t_uniform(resgasup!=0) = t_un; %Creating a time vector of the adequate length.
 
 res = [tvec./us t_uniform resgasup resgasdown Rres];
-redond = [4 3 4 4 4];
+redond = [4 3 6 6 4];
 name = horzcat(shotname,"_res.dat"); #Adding the right sufix.
 output = fopen(name,"w"); #Opening the file.
 fdisp(output,"time(µs)	time_uniform	res.up(Ohm/m)	res.down(Ohm/m)	resistance(Ohms)"); #First line.
 display_rounded_matrix(res, redond, output); 
 fclose(output);
 
-#Saving voltages:
-voltages = [tvec./us temp vmeas vanode vres];
-redond = [4 3 4 4 4];
+#Saving voltages and current:
+voltages = [tvec./us temp vmeas vanode vres curr];
+redond = [4 3 4 4 4 4];
 name = horzcat(shotname,"_voltages.dat"); #Adding the right sufix.
 output = fopen(name,"w"); #Opening the file.
-fdisp(output,"time(µs)	Temper.(K)	Vmeas(V)	Vanode(V)	Vresis(V)"); #First line.
+fdisp(output,"time(µs)	Temper.(K)	Vmeas(V)	Vanode(V)	Vresis(V) Current(A)"); #First line.
 display_rounded_matrix(voltages, redond, output); 
 fclose(output);
 
