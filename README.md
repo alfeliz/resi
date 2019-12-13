@@ -15,7 +15,7 @@ Produced output are the files:
 
 To execute it in a linux system, just call him with the parameters in order and with spaces between them.
 
-###Needed Octave functions:
+### Needed Octave functions:
 It needs these octave functions, alse present in this repository:
 + **trans.m** 	To scale variables.
 + **deri.m**		To derivate vectors with a lot of noise.
